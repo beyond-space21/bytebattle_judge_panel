@@ -1,0 +1,87 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: judge-postgres
+    environment:
+      POSTGRES_USER: judge
+      POSTGRES_PASSWORD: judge
+      POSTGRES_DB: judge
+    ports:
+      - "5432:5432"
+    volumes:
+      - judge_pgdata:/var/lib/postgresql/data
+      - ./migrations/001_init.sql:/docker-entrypoint-initdb.d/001_init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U judge -d judge"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # Judge0 dependencies
+  judge0-redis:
+    image: redis:7-alpine
+    container_name: judge0-redis
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - judge0_redis:/data
+
+  judge0-db:
+    image: postgres:16-alpine
+    container_name: judge0-db
+    environment:
+      POSTGRES_USER: judge0
+      POSTGRES_PASSWORD: judge0
+      POSTGRES_DB: judge0
+    volumes:
+      - judge0_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U judge0 -d judge0"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  judge0-server:
+    image: judge0/judge0:1.13.0
+    container_name: judge0-server
+    privileged: true
+    depends_on:
+      judge0-db:
+        condition: service_healthy
+      judge0-redis:
+        condition: service_started
+    volumes:
+      - ./deploy/judge0.conf:/judge0.conf:ro
+      - /sys/fs/cgroup:/sys/fs/cgroup:rw
+    ports:
+      - "2358:2358"
+    environment:
+      REDIS_HOST: judge0-redis
+      POSTGRES_HOST: judge0-db
+      POSTGRES_DB: judge0
+      POSTGRES_USER: judge0
+      POSTGRES_PASSWORD: judge0
+
+  judge0-workers:
+    image: judge0/judge0:1.13.0
+    container_name: judge0-workers
+    command: ["./scripts/workers"]
+    privileged: true
+    depends_on:
+      judge0-db:
+        condition: service_healthy
+      judge0-redis:
+        condition: service_started
+    volumes:
+      - ./deploy/judge0.conf:/judge0.conf:ro
+      - /sys/fs/cgroup:/sys/fs/cgroup:rw
+    environment:
+      REDIS_HOST: judge0-redis
+      POSTGRES_HOST: judge0-db
+      POSTGRES_DB: judge0
+      POSTGRES_USER: judge0
+      POSTGRES_PASSWORD: judge0
+
+volumes:
+  judge_pgdata:
+  judge0_pgdata:
+  judge0_redis:
