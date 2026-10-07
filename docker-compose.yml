@@ -17,6 +17,26 @@ services:
       timeout: 5s
       retries: 10
 
+  app:
+    build: .
+    container_name: judge-app
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "8759:8759"
+    environment:
+      HTTP_ADDR: ":8759"
+      DATABASE_URL: postgres://judge:judge@postgres:5432/judge?sslmode=disable
+      JUDGE0_URL: http://judge0-server:2358
+      JUDGE_BACKEND: ${JUDGE_BACKEND:-local}
+      ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-admin123}
+      JWT_SECRET: ${JWT_SECRET:-dev-jwt-secret-change-me}
+      CORS_ORIGIN: ${CORS_ORIGIN:-*}
+      PYTHON_LANGUAGE_ID: ${PYTHON_LANGUAGE_ID:-71}
+    restart: unless-stopped
+
   # Judge0 dependencies
   judge0-redis:
     image: redis:7-alpine
@@ -24,6 +44,7 @@ services:
     command: ["redis-server", "--appendonly", "yes"]
     volumes:
       - judge0_redis:/data
+    profiles: ["judge0", "full"]
 
   judge0-db:
     image: postgres:16-alpine
@@ -39,6 +60,7 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
+    profiles: ["judge0", "full"]
 
   judge0-server:
     image: judge0/judge0:1.13.0
@@ -60,6 +82,7 @@ services:
       POSTGRES_DB: judge0
       POSTGRES_USER: judge0
       POSTGRES_PASSWORD: judge0
+    profiles: ["judge0", "full"]
 
   judge0-workers:
     image: judge0/judge0:1.13.0
@@ -80,6 +103,7 @@ services:
       POSTGRES_DB: judge0
       POSTGRES_USER: judge0
       POSTGRES_PASSWORD: judge0
+    profiles: ["judge0", "full"]
 
 volumes:
   judge_pgdata:

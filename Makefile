@@ -1,4 +1,4 @@
-.PHONY: deps web build run compose-up compose-down compose-postgres pm2-start pm2-stop pm2-restart pm2-logs pm2-status
+.PHONY: deps web build run compose-up compose-down compose-postgres docker-build docker-up docker-down docker-full pm2-start pm2-stop pm2-restart pm2-logs pm2-status
 
 deps:
 	cd web && npm install
@@ -12,6 +12,31 @@ build: web
 
 run: build
 	./bin/server
+
+# --- Docker (preferred) ---
+
+# App + Postgres; judging via local Python in the app container
+docker-up:
+	docker compose up -d --build
+
+docker-build:
+	docker compose build app
+
+# App + Postgres + Judge0 (Linux hosts; may fail on Docker Desktop / cgroup v2)
+docker-full:
+	JUDGE_BACKEND=auto docker compose --profile full up -d --build
+
+docker-down:
+	docker compose --profile full down
+
+compose-up: docker-full
+
+compose-down: docker-down
+
+compose-postgres:
+	docker compose up -d postgres
+
+# --- Local binary + PM2 (optional) ---
 
 pm2-start: build
 	pm2 start ecosystem.config.cjs
@@ -29,15 +54,3 @@ pm2-logs:
 
 pm2-status:
 	pm2 status
-
-compose-up:
-	docker compose up -d postgres judge0-redis judge0-db
-	@echo "Waiting for databases..."
-	@sleep 5
-	docker compose up -d judge0-server judge0-workers
-
-compose-down:
-	docker compose down
-
-compose-postgres:
-	docker compose up -d postgres

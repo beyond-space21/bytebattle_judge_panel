@@ -8,12 +8,42 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 )
 
 // LocalRunner executes Python locally with a wall-clock timeout.
 // Used as fallback when Judge0 isolate fails (e.g. cgroup v2 hosts).
 type LocalRunner struct{}
+
+var (
+	pythonOnce sync.Once
+	pythonBin  string
+	pythonErr  error
+)
+
+// pythonExecutable finds a Python 3 interpreter.
+// Honors PYTHON_BIN; otherwise tries python3 then python (Windows).
+func pythonExecutable() (string, error) {
+	pythonOnce.Do(func() {
+		if v := strings.TrimSpace(os.Getenv("PYTHON_BIN")); v != "" {
+			if p, err := exec.LookPath(v); err == nil {
+				pythonBin = p
+				return
+			}
+			pythonErr = fmt.Errorf("PYTHON_BIN=%q not found in PATH", v)
+			return
+		}
+		for _, name := range []string{"python3", "python"} {
+			if p, err := exec.LookPath(name); err == nil {
+				pythonBin = p
+				return
+			}
+		}
+		pythonErr = fmt.Errorf("python3/python not found in PATH; install Python 3 or set PYTHON_BIN")
+	})
+	return pythonBin, pythonErr
+}
 
 func (LocalRunner) Run(ctx context.Context, source, stdin string, timeLimitMS int) (*submissionResp, error) {
 	dir, err := os.MkdirTemp("", "judge-py-*")
@@ -27,6 +57,11 @@ func (LocalRunner) Run(ctx context.Context, source, stdin string, timeLimitMS in
 		return nil, err
 	}
 
+	py, err := pythonExecutable()
+	if err != nil {
+		return nil, err
+	}
+
 	timeout := time.Duration(timeLimitMS) * time.Millisecond
 	if timeout <= 0 {
 		timeout = 2 * time.Second
@@ -37,7 +72,7 @@ func (LocalRunner) Run(ctx context.Context, source, stdin string, timeLimitMS in
 	runCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	cmd := exec.CommandContext(runCtx, "python3", script)
+	cmd := exec.CommandContext(runCtx, py, script)
 	cmd.Dir = dir
 	cmd.Stdin = strings.NewReader(stdin)
 	var stdout, stderr bytes.Buffer

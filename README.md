@@ -4,50 +4,92 @@ Single-contest platform: students solve Python problems in a LeetCode-style UI; 
 
 ## Stack
 
-- **Go** API + WebSocket (`bin/server`)
+- **Go** API + WebSocket (serves built React UI)
 - **React + Monaco** UI (`web/`)
 - **PostgreSQL** (app data)
-- **Judge0** (self-hosted, Docker)
+- **Judge0** (optional, self-hosted) or **local Python** in the app container
 
-## Quick start
+## Quick start (Docker)
 
-### 1. Start dependencies
+Requires [Docker](https://docs.docker.com/get-docker/) (Compose v2).
 
 ```bash
-docker compose up -d
+docker compose up -d --build
+# or: make docker-up
 ```
 
-This starts app Postgres (`localhost:5432`), Judge0 API (`localhost:2358`), and Judge0 workers/redis/db.
+This builds the app image and starts:
 
-Default app DB: `postgres://judge:judge@localhost:5432/judge?sslmode=disable`
+| Service    | URL / port                          |
+|------------|-------------------------------------|
+| App + UI   | http://localhost:8759               |
+| Admin      | http://localhost:8759/admin/login   |
+| Postgres   | `localhost:5432` (user/pass/db: `judge`) |
 
-### 2. Build UI + Go binary
+Default admin: `admin` / `admin123`
+
+Judging uses **local Python inside the app container** (`JUDGE_BACKEND=local`).
+
+```bash
+docker compose logs -f app
+docker compose down
+```
+
+### Full stack (Judge0)
+
+On a Linux host where Judge0’s isolate sandbox works:
+
+```bash
+make docker-full
+# JUDGE_BACKEND=auto docker compose --profile full up -d --build
+```
+
+Adds Judge0 API on `localhost:2358` plus its Redis/Postgres/workers. The app uses Judge0 with local Python fallback.
+
+> Judge0 CE often fails on **cgroup v2** and **Docker Desktop (Windows/macOS)** (Internal Error). Prefer the default `docker compose up` stack there.
+
+### Rebuild after code changes
+
+```bash
+docker compose up -d --build app
+```
+
+## Windows (PowerShell)
+
+```powershell
+.\scripts\run-windows.ps1
+```
+
+Same Docker stack as above (Postgres + app, local Python judge). Stop with `.\scripts\run-windows.ps1 -Down`.
+
+## Dev without Docker (optional)
+
+### Dependencies only in Docker
+
+```bash
+docker compose up -d postgres
+# optional Judge0:
+docker compose --profile full up -d
+```
+
+### Build UI + Go binary
 
 ```bash
 make deps    # npm install in web/
 make build   # builds web/dist and bin/server
 ```
 
-### 3. Run the server (PM2)
+### Run with PM2
 
 ```bash
-make pm2-start    # builds binary + starts under PM2 on :8759
-make pm2-status
+make pm2-start
 make pm2-logs
-make pm2-restart  # after code changes
 make pm2-stop
 ```
 
-Or directly:
+Open http://localhost:8759
 
-```bash
-pm2 start ecosystem.config.cjs
-pm2 save
-```
-
-Open http://localhost:8759 — student login. Admin: http://localhost:8759/admin/login
-
-### Dev UI (hot reload)
+### Hot-reload UI
 
 ```bash
 make pm2-start        # API on :8759
@@ -73,19 +115,26 @@ cd web && npm run dev # Vite on :5173, proxies /api
 
 ## Environment
 
+Compose sets `DATABASE_URL` / `JUDGE0_URL` for the Docker network. Override secrets when starting:
+
+```bash
+ADMIN_PASSWORD=secret JWT_SECRET=change-me docker compose up -d --build
+```
+
 | Variable | Default | Meaning |
 |----------|---------|---------|
 | `HTTP_ADDR` | `:8759` | Listen address |
 | `DATABASE_URL` | local judge DB | Postgres URL |
-| `JUDGE0_URL` | `http://localhost:2358` | Judge0 API |
+| `JUDGE0_URL` | `http://localhost:2358` (host) / `http://judge0-server:2358` (compose) | Judge0 API |
 | `ADMIN_USERNAME` | `admin` | Bootstrap admin |
 | `ADMIN_PASSWORD` | `admin123` | Bootstrap password (first run) |
 | `JWT_SECRET` | dev secret | Admin JWT signing |
 | `PYTHON_LANGUAGE_ID` | `71` | Judge0 Python 3 id |
-| `JUDGE_BACKEND` | `auto` | `auto` (Judge0 with local Python fallback), `judge0`, or `local` |
+| `JUDGE_BACKEND` | `local` (compose) / `auto` (full) | `auto`, `judge0`, or `local` |
+| `PYTHON_BIN` | `python3` in image | Python for local judge |
 | `CORS_ORIGIN` | `*` | CORS allow origin |
 
-> **Note:** Judge0 CE's isolate sandbox often fails on hosts using **cgroup v2** (returns Internal Error). With `JUDGE_BACKEND=auto` (default), the Go server falls back to a local `python3` runner so contests still work. Prefer cgroup v1 or a dedicated Judge0 host for production isolation.
+See `.env.example` for local/PM2 runs.
 
 ## Project layout
 
@@ -93,9 +142,9 @@ cd web && npm run dev # Vite on :5173, proxies /api
 cmd/server          Go entrypoint
 internal/api        HTTP + WebSocket
 internal/store      PostgreSQL
-internal/judge      Judge0 client
-migrations/         Schema (also applied by Postgres container)
+internal/judge      Judge0 client + local Python runner
+migrations/         Schema (applied by Postgres container)
 web/                React app
-docker-compose.yml  Postgres + Judge0 stack
-bin/server          Built binary (not containerized)
+Dockerfile          Multi-stage: UI + Go + runtime (Python)
+docker-compose.yml  app + Postgres (+ Judge0 via --profile full)
 ```
